@@ -130,7 +130,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "apartment_1": {
       "scene_scale_class": "medium",
@@ -153,7 +153,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "apartment_2": {
       "scene_scale_class": "medium",
@@ -176,22 +176,13 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "frl_apartment_0": {
       "scene_scale_class": "medium",
       "step_budget": 2000,
       "seed_ids": [
-        6166182,
-        3930376,
-        952427,
-        860045,
-        9637010,
-        3930409,
-        5940565,
-        4617879,
-        1783735,
-        8452693
+        6166182
       ],
       "save_video_seed_ids": [
         6166182
@@ -222,7 +213,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "frl_apartment_2": {
       "scene_scale_class": "medium",
@@ -245,7 +236,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "frl_apartment_3": {
       "scene_scale_class": "medium",
@@ -268,7 +259,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "frl_apartment_4": {
       "scene_scale_class": "medium",
@@ -291,7 +282,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "frl_apartment_5": {
       "scene_scale_class": "medium",
@@ -314,7 +305,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "hotel_0": {
       "scene_scale_class": "small",
@@ -337,7 +328,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "office_0": {
       "scene_scale_class": "small",
@@ -360,7 +351,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "office_1": {
       "scene_scale_class": "small",
@@ -383,7 +374,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "office_2": {
       "scene_scale_class": "medium",
@@ -406,7 +397,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "office_3": {
       "scene_scale_class": "medium",
@@ -429,7 +420,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "office_4": {
       "scene_scale_class": "medium",
@@ -452,7 +443,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "room_0": {
       "scene_scale_class": "small",
@@ -475,7 +466,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "room_1": {
       "scene_scale_class": "small",
@@ -498,7 +489,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     },
     "room_2": {
       "scene_scale_class": "small",
@@ -521,7 +512,7 @@
       "save_map_seed_ids": [
         6166182
       ],
-      "enabled": true
+      "enabled": false
     }
   }
 }

@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shlex
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -19,6 +22,12 @@ import yaml
 MOVE_FORWARD_ACTION = "1"
 AVG_ITER_RE = re.compile(r"Average Mapping/Iteration Time:\s*([0-9eE+.\-]+)\s*ms")
 AVG_FRAME_RE = re.compile(r"Average Mapping/Frame Time:\s*([0-9eE+.\-]+)\s*s")
+FAIL_PATTERNS = (
+    "process has died",
+    "traceback (most recent call last):",
+    "error: cannot launch node",
+    "windowlesscontext: unable to create windowless context",
+)
 
 
 def now_iso() -> str:
@@ -135,7 +144,8 @@ class RunDB:
         self.conn.close()
 
     def _sql_type(self, column: str) -> str:
-        if column in {"gpu_id", "seed_id", "step_budget", "exit_code"} or column.endswith("_id"):
+        integer_columns = {"gpu_id", "seed_id", "step_budget", "exit_code"}
+        if column in integer_columns:
             return "INTEGER"
         if column.endswith(("_cm", "_m", "_ms", "_sec", "_percent")):
             return "REAL"
@@ -300,13 +310,19 @@ def make_run_config(runtime: Runtime, run: RunSpec) -> Path:
     cfg["dataset"]["scene_id"] = run.scene_id
     cfg["dataset"]["step_num"] = run.step_budget
     cfg["dataset"]["seed_id"] = run.seed_id
+    base_root = runtime.activesplat_root
+    for section, key in (("env", "config"), ("sensor", "config")):
+        if section in cfg and key in cfg[section]:
+            cfg[section][key] = str(resolve_path(cfg[section][key], base_root))
+    if "mapper" in cfg and "splatam_cfg_path" in cfg["mapper"]:
+        cfg["mapper"]["splatam_cfg_path"] = str(resolve_path(cfg["mapper"]["splatam_cfg_path"], runtime.activesplat_root))
     path = runtime.runner_artifacts_root / "configs" / f"{run.run_id}.json"
     dump_json(path, cfg)
     return path
 
 
-def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
-    cmd = [
+def _roslaunch_argv(runtime: Runtime, run: RunSpec, run_config_path: Path) -> list[str]:
+    return [
         "roslaunch",
         "activesplat",
         "habitat.launch",
@@ -324,18 +340,80 @@ def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path:
         f"seed_id:={run.seed_id}",
         f"remark:={run.remark}",
     ]
+
+
+def _wrap_roslaunch_for_catkin_conda(runtime: Runtime, ros_argv: list[str]) -> tuple[list[str], str]:
+    """
+    Same shell recipe as a working interactive run:
+    source conda.sh && conda activate ActiveSplat && source devel/setup.bash && roslaunch ...
+
+    Uses bash -i -lc (interactive login) so ~/.bashrc / profile hooks run — on RunPod
+    GPU/EGL vars are often only set there; plain -lc matches a «bare» subprocess and can
+    reproduce EGL_BAD_PARAMETER even when the same command works in your terminal.
+    """
+    catkin_ws = Path(os.environ.get("ACTIVE_CATKIN_WS", str(runtime.activesplat_root.parent.parent)))
+    conda_sh = Path(os.environ.get("ACTIVE_CONDA_SH", "/opt/conda/etc/profile.d/conda.sh"))
+    conda_env = os.environ.get("ACTIVE_CONDA_ENV", "ActiveSplat")
+    devel_setup = catkin_ws / "devel" / "setup.bash"
+    ros_line = " ".join(shlex.quote(a) for a in ros_argv)
+    if devel_setup.is_file() and conda_sh.is_file():
+        inner = (
+            f"set -euo pipefail; "
+            f"source {shlex.quote(str(conda_sh))}; "
+            f"conda activate {shlex.quote(conda_env)}; "
+            f"source {shlex.quote(str(devel_setup))}; "
+            f"cd {shlex.quote(str(runtime.activesplat_root))}; "
+            f"exec {ros_line}"
+        )
+        cmd = ["bash", "-i", "-lc", inner]
+        note = f"conda+devel wrapper, interactive bash (catkin_ws={catkin_ws}, env={conda_env})"
+    else:
+        cmd = ros_argv
+        note = "plain roslaunch (missing conda.sh or devel/setup.bash; set ACTIVE_CATKIN_WS / ACTIVE_CONDA_SH)"
+    return cmd, note
+
+
+def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
+    ros_argv = _roslaunch_argv(runtime, run, run_config_path)
+    cmd, wrapper_note = _wrap_roslaunch_for_catkin_conda(runtime, ros_argv)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w") as log:
-        log.write("COMMAND: " + " ".join(cmd) + "\n\n")
+        log.write(f"# {wrapper_note}\n")
+        log_cmd = " ".join(shlex.quote(x) for x in cmd)
+        log.write("COMMAND: " + log_cmd + "\n\n")
         log.flush()
-        return subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=runtime.activesplat_root,
+            env=os.environ.copy(),
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            check=False,
+            start_new_session=True,
         )
+        forced_failure = False
+        while True:
+            code = proc.poll()
+            if code is not None:
+                return subprocess.CompletedProcess(cmd, code)
+            if detect_launch_failure(log_path) is not None:
+                forced_failure = True
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                for _ in range(20):
+                    code = proc.poll()
+                    if code is not None:
+                        return subprocess.CompletedProcess(cmd, code)
+                    time.sleep(0.25)
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                code = proc.wait()
+                return subprocess.CompletedProcess(cmd, code if not forced_failure else max(code, 1))
+            time.sleep(0.5)
 
 
 def find_result_dir(runtime: Runtime, run: RunSpec) -> Path | None:
@@ -358,6 +436,18 @@ def parse_log_metrics(log_path: Path) -> dict[str, float | None]:
         "avg_mapping_iteration_ms": float(iter_match.group(1)) if iter_match else None,
         "avg_mapping_frame_sec": float(frame_match.group(1)) if frame_match else None,
     }
+
+
+def detect_launch_failure(log_path: Path) -> str | None:
+    if not log_path.exists():
+        return "runner log was not created"
+    text = log_path.read_text(errors="replace")
+    low = text.lower()
+    for pattern in FAIL_PATTERNS:
+        if pattern in low:
+            lines = [line.strip() for line in text.splitlines() if pattern in line.lower()]
+            return lines[-1] if lines else pattern
+    return None
 
 
 def path_length_m(actions_path: Path | None, step_size: float | None) -> float | None:
@@ -478,8 +568,12 @@ def launch_run(db: RunDB, cfg: dict[str, Any], runtime: Runtime, run: RunSpec, r
     actions_path = Path(artifacts["actions_path"]) if artifacts["actions_path"] else None
     row["path_length_m"] = path_length_m(actions_path, step_size)
     row.update(parse_log_metrics(log_path))
+    launch_error = detect_launch_failure(log_path)
 
-    if proc.returncode == 0:
+    if launch_error is not None:
+        row["status"] = "failed"
+        row["error_message"] = launch_error
+    elif proc.returncode == 0:
         row["status"] = "completed_with_cleanup_error" if cleanup_error else "completed"
     else:
         row["status"] = "failed"
