@@ -1,0 +1,13 @@
+{
+    "datasets": {
+        "gibson": {
+            "root": "/path/to/gibson_habitat/gibson"
+        },
+        "mp3d": {
+            "root": "/path/to/matterport"
+        },
+        "replica": {
+            "root": "/workspace/datasets/replica"
+        }
+    }
+}

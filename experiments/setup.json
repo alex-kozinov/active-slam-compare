@@ -11,7 +11,7 @@
     "base_config_path": "/opt/activesplat_ws/src/ActiveSplat/config/datasets/replica.json",
     "user_config_path": "/opt/activesplat_ws/src/ActiveSplat/config/user_config.json",
     "dataset_root": "/workspace/datasets/replica",
-    "result_root": "/opt/activesplat_ws/src/ActiveSplat/results",
+    "result_root": "/workspace/experiments/activesplat/results",
     "result_db_path": "replica_geometry_benchmark_v1.sqlite",
     "records_path": "records",
     "gpu_id": 0,
