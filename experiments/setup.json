@@ -111,7 +111,7 @@
   "scenes_description": {
     "office_0": {
       "scene_scale_class": "small",
-      "step_budget": 1000,
+      "step_budget": 500,
       "seed_ids": [
         6166182,
         3930376,
@@ -129,7 +129,7 @@
     },
     "office_1": {
       "scene_scale_class": "small",
-      "step_budget": 1000,
+      "step_budget": 500,
       "seed_ids": [
         6166182,
         3930376,
@@ -147,7 +147,7 @@
     },
     "office_2": {
       "scene_scale_class": "medium",
-      "step_budget": 2000,
+      "step_budget": 1000,
       "seed_ids": [
         6166182,
         3930376,
@@ -165,7 +165,7 @@
     },
     "office_3": {
       "scene_scale_class": "medium",
-      "step_budget": 2000,
+      "step_budget": 1000,
       "seed_ids": [
         6166182,
         3930376,
@@ -183,7 +183,7 @@
     },
     "office_4": {
       "scene_scale_class": "medium",
-      "step_budget": 2000,
+      "step_budget": 1000,
       "seed_ids": [
         6166182,
         3930376,
@@ -201,7 +201,7 @@
     },
     "room_0": {
       "scene_scale_class": "small",
-      "step_budget": 1000,
+      "step_budget": 500,
       "seed_ids": [
         6166182,
         3930376,
@@ -219,7 +219,7 @@
     },
     "room_1": {
       "scene_scale_class": "small",
-      "step_budget": 1000,
+      "step_budget": 500,
       "seed_ids": [
         6166182,
         3930376,
@@ -237,7 +237,7 @@
     },
     "room_2": {
       "scene_scale_class": "small",
-      "step_budget": 1000,
+      "step_budget": 500,
       "seed_ids": [
         6166182,
         3930376,
