@@ -416,16 +416,35 @@ def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path:
             time.sleep(0.5)
 
 
-def find_result_dir(runtime: Runtime, run: RunSpec) -> Path | None:
-    if not runtime.result_root.exists():
+def stage_results_root(runtime: Runtime) -> Path:
+    return runtime.activesplat_root / "results"
+
+
+def find_stage_result_dir(runtime: Runtime, run: RunSpec) -> Path | None:
+    root = stage_results_root(runtime)
+    if not root.exists():
         return None
     candidates = [
-        p for p in runtime.result_root.iterdir()
+        p for p in root.iterdir()
         if p.is_dir()
         and f"_{runtime.dataset_format}_{run.scene_id}_seed_{run.seed_id}" in p.name
         and p.name.endswith(f"_{run.remark}")
     ]
     return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
+
+
+def migrate_stage_result(runtime: Runtime, run: RunSpec, stage_dir: Path | None) -> tuple[Path | None, str | None]:
+    if stage_dir is None or not stage_dir.exists():
+        return None, f"staging result directory was not found in {stage_results_root(runtime)}"
+    run_root = runtime.result_root / "runs" / run.scene_id / str(run.seed_id) / run.run_id
+    run_root.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if run_root.exists():
+            shutil.rmtree(run_root)
+        shutil.move(str(stage_dir), str(run_root))
+        return run_root, None
+    except Exception as e:
+        return None, f"failed to migrate staging result to {run_root}: {e}"
 
 
 def parse_log_metrics(log_path: Path) -> dict[str, float | None]:
@@ -469,7 +488,7 @@ def collect_artifacts(runtime: Runtime, run: RunSpec, result_dir: Path | None) -
         "transforms_path": None,
     }
     if result_dir is None or not result_dir.exists():
-        return artifacts, "result directory was not found after roslaunch finished"
+        return artifacts, "result directory is missing in canonical result_root"
 
     actions_path = result_dir / "actions.txt"
     if actions_path.exists():
@@ -558,10 +577,12 @@ def launch_run(db: RunDB, cfg: dict[str, Any], runtime: Runtime, run: RunSpec, r
     row["elapsed_sec"] = round(time.time() - t0, 3)
     row["exit_code"] = proc.returncode
 
-    result_dir = find_result_dir(runtime, run)
+    stage_dir = find_stage_result_dir(runtime, run)
+    result_dir, migrate_error = migrate_stage_result(runtime, run, stage_dir)
     artifacts, cleanup_error = collect_artifacts(runtime, run, result_dir)
     row.update(artifacts)
-    row["cleanup_error"] = cleanup_error
+    cleanup_errors = [x for x in (migrate_error, cleanup_error) if x]
+    row["cleanup_error"] = "; ".join(cleanup_errors) if cleanup_errors else None
 
     base_cfg = load_json(runtime.base_config_path)
     step_size = forward_step_size(runtime.base_config_path, base_cfg)

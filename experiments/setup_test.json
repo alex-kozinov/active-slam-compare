@@ -1,0 +1,127 @@
+{
+  "experiment_meta": {
+    "experiment_name": "replica_smoke_test",
+    "dataset_name": "Replica",
+    "dataset_format": "replica",
+    "created_at": "2026-03-25",
+    "description": "Single-scene, single-seed smoke run. Use setup.json for full benchmarks.",
+    "owner": "user"
+  },
+  "runtime_defaults": {
+    "base_config_path": "/opt/activesplat_ws/src/ActiveSplat/config/datasets/replica.json",
+    "user_config_path": "/opt/activesplat_ws/src/ActiveSplat/config/user_config.json",
+    "dataset_root": "/workspace/datasets/replica",
+    "result_root": "/workspace/experiments/activesplat/results",
+    "result_db_path": "replica_smoke_test.sqlite",
+    "records_path": "records",
+    "gpu_id": 0,
+    "mode": "AUTO_PLANNING",
+    "mapper": "SplaTAM",
+    "hide_mapper_windows": true,
+    "hide_planner_windows": true,
+    "save_runtime_data": false,
+    "parallelized": false,
+    "debug": false,
+    "step_budget_policy": {
+      "small": 1000,
+      "medium": 2000
+    },
+    "seed_policy": {
+      "seed_id_controls_start_state": true,
+      "seed_id_controls_mapper_rng": true,
+      "seed_id_controls_simulator_rng": true
+    }
+  },
+  "result_db": {
+    "db_scheme": {
+      "table_name": "experiment_runs",
+      "primary_key": [
+        "run_id"
+      ],
+      "status_values": [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "completed_with_cleanup_error",
+        "skipped"
+      ],
+      "run_identity": [
+        "run_id",
+        "experiment_name",
+        "scene_id",
+        "scene_scale_class",
+        "seed_id",
+        "step_budget"
+      ],
+      "config_snapshot": [
+        "dataset_format",
+        "base_config_path",
+        "user_config_path",
+        "dataset_root",
+        "gpu_id",
+        "mapper",
+        "mode"
+      ],
+      "timing": [
+        "started_at",
+        "finished_at",
+        "elapsed_sec"
+      ],
+      "status": [
+        "status",
+        "exit_code",
+        "error_message",
+        "cleanup_error"
+      ],
+      "artifact_paths": [
+        "result_dir",
+        "actions_path",
+        "video_rgb_path",
+        "video_keyframes_path",
+        "topdown_map_path",
+        "visited_map_path",
+        "gaussians_path",
+        "transforms_path"
+      ],
+      "metrics": [
+        "accuracy_cm",
+        "completion_cm",
+        "completion_ratio_percent",
+        "path_length_m",
+        "avg_mapping_iteration_ms",
+        "avg_mapping_frame_sec"
+      ]
+    }
+  },
+  "evaluation": {
+    "completion_threshold_cm": 5,
+    "metrics_to_compute": [
+      "accuracy_cm",
+      "completion_cm",
+      "completion_ratio_percent"
+    ],
+    "metric_definitions": {
+      "accuracy_cm": "Average distance from reconstructed geometry to reference geometry, reported in centimeters.",
+      "completion_cm": "Average distance from reference geometry to reconstructed geometry, reported in centimeters.",
+      "completion_ratio_percent": "Percentage of reference geometry covered within the completion threshold.",
+      "completion_threshold_cm": 5
+    }
+  },
+  "scenes_description": {
+    "frl_apartment_0": {
+      "scene_scale_class": "medium",
+      "step_budget": 1000,
+      "seed_ids": [
+        6166182
+      ],
+      "save_video_seed_ids": [
+        6166182
+      ],
+      "save_map_seed_ids": [
+        6166182
+      ],
+      "enabled": true
+    }
+  }
+}

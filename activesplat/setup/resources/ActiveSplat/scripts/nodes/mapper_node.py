@@ -140,9 +140,25 @@ if __name__ == '__main__':
         bool(args.parallelized),
         hide_windows,
         bool(args.save_runtime_data))
-    if hide_windows:
-        rospy.spin()
-    else:
-        app.run()
-    
-    rospy.loginfo(f'{PROJECT_NAME} mapper node finished.')
+    try:
+        if hide_windows:
+            rospy.spin()
+        else:
+            app.run()
+    finally:
+        try:
+            import open3d.core as o3c
+            if o3c.cuda.is_available():
+                o3c.cuda.release_cache()
+        except Exception:
+            pass
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        rospy.loginfo(f'{PROJECT_NAME} mapper node finished.')
+        # Open3D can abort in ~Cacher() during normal interpreter shutdown; exit without running
+        # remaining Python/C++ destructors (OS reclaims GPU memory when process ends).
+        os._exit(0)

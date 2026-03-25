@@ -26,11 +26,17 @@ fi
 
 copy_activesplat_file "launch/habitat.launch"
 copy_activesplat_file "scripts/nodes/mapper_node.py"
+copy_activesplat_file "src/visualizer/visualizer.py"
 copy_activesplat_file "src/dataloader/__init__.py"
 copy_activesplat_file "src/dataloader/dataloader.py"
 copy_activesplat_file "config/.templates/user_config.json"
 copy_activesplat_file "config/user_config.json"
 copy_activesplat_file "config/datasets/replica.json"
+copy_activesplat_file "srv/GetDatasetConfig.srv"
+
+# ROS launch expects type="*.py" nodes to be executable
+chmod +x "${ACTIVESPLAT_ROOT}/scripts/nodes/mapper_node.py"
+chmod +x "${ACTIVESPLAT_ROOT}/scripts/nodes/planner_node.py"
 
 echo
 echo "Restore complete."
