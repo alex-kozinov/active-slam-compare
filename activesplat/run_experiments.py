@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import yaml
 
@@ -27,6 +27,13 @@ FAIL_PATTERNS = (
     "traceback (most recent call last):",
     "error: cannot launch node",
     "windowlesscontext: unable to create windowless context",
+)
+
+# If mapper/planner finished cleanly but roslaunch doesn't exit, interrupt it.
+CLEAN_FINISH_MARKERS = (
+    "process has finished cleanly",
+    "activesplat planner node finished",
+    "activesplat mapper node finished",
 )
 
 
@@ -194,6 +201,15 @@ class RunDB:
         )
         values = [self._normalize(payload[c]) for c in cols]
         self.conn.execute(sql, values)
+        self.conn.commit()
+
+    def update_running_progress(self, run_id: str, elapsed_sec: float) -> None:
+        # Heartbeat updates allow tracking progress while roslaunch is still running.
+        # Keep status as 'running' and only update elapsed_sec.
+        self.conn.execute(
+            f'UPDATE "{self.table}" SET status = ?, elapsed_sec = ? WHERE run_id = ?',
+            ("running", elapsed_sec, run_id),
+        )
         self.conn.commit()
 
     @staticmethod
@@ -373,7 +389,15 @@ def _wrap_roslaunch_for_catkin_conda(runtime: Runtime, ros_argv: list[str]) -> t
     return cmd, note
 
 
-def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
+def run_command(
+    runtime: Runtime,
+    run: RunSpec,
+    run_config_path: Path,
+    log_path: Path,
+    *,
+    heartbeat: Callable[[float], None] | None = None,
+    heartbeat_interval_sec: float = 10.0,
+) -> subprocess.CompletedProcess[str]:
     ros_argv = _roslaunch_argv(runtime, run, run_config_path)
     cmd, wrapper_note = _wrap_roslaunch_for_catkin_conda(runtime, ros_argv)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -392,6 +416,9 @@ def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path:
             start_new_session=True,
         )
         forced_failure = False
+        hb_started_at = time.time()
+        hb_last = hb_started_at
+        clean_finish_seen_at: float | None = None
         while True:
             code = proc.poll()
             if code is not None:
@@ -413,6 +440,23 @@ def run_command(runtime: Runtime, run: RunSpec, run_config_path: Path, log_path:
                     pass
                 code = proc.wait()
                 return subprocess.CompletedProcess(cmd, code if not forced_failure else max(code, 1))
+            if detect_clean_finish(log_path):
+                now = time.time()
+                if clean_finish_seen_at is None:
+                    clean_finish_seen_at = now
+                elif (now - clean_finish_seen_at) >= 15.0:
+                    try:
+                        os.killpg(proc.pid, signal.SIGINT)
+                    except ProcessLookupError:
+                        pass
+                    for _ in range(40):
+                        code = proc.poll()
+                        if code is not None:
+                            return subprocess.CompletedProcess(cmd, code)
+                        time.sleep(0.25)
+            if heartbeat is not None and (time.time() - hb_last) >= heartbeat_interval_sec:
+                heartbeat(time.time() - hb_started_at)
+                hb_last = time.time()
             time.sleep(0.5)
 
 
@@ -467,6 +511,15 @@ def detect_launch_failure(log_path: Path) -> str | None:
             lines = [line.strip() for line in text.splitlines() if pattern in line.lower()]
             return lines[-1] if lines else pattern
     return None
+
+
+def detect_clean_finish(log_path: Path) -> bool:
+    if not log_path.exists():
+        return False
+    low = log_path.read_text(errors="replace").lower()
+    if any(p in low for p in FAIL_PATTERNS):
+        return False
+    return any(m in low for m in CLEAN_FINISH_MARKERS)
 
 
 def path_length_m(actions_path: Path | None, step_size: float | None) -> float | None:
@@ -572,36 +625,68 @@ def launch_run(db: RunDB, cfg: dict[str, Any], runtime: Runtime, run: RunSpec, r
     t0 = time.time()
     run_cfg = make_run_config(runtime, run)
     log_path = runtime.runner_artifacts_root / "logs" / f"{run.run_id}.log"
-    proc = run_command(runtime, run, run_cfg, log_path)
-    row["finished_at"] = now_iso()
-    row["elapsed_sec"] = round(time.time() - t0, 3)
-    row["exit_code"] = proc.returncode
 
-    stage_dir = find_stage_result_dir(runtime, run)
-    result_dir, migrate_error = migrate_stage_result(runtime, run, stage_dir)
-    artifacts, cleanup_error = collect_artifacts(runtime, run, result_dir)
-    row.update(artifacts)
-    cleanup_errors = [x for x in (migrate_error, cleanup_error) if x]
-    row["cleanup_error"] = "; ".join(cleanup_errors) if cleanup_errors else None
+    proc: subprocess.CompletedProcess[str] | None = None
+    cleanup_error: str | None = None
+    post_error: str | None = None
+    try:
+        proc = run_command(
+            runtime,
+            run,
+            run_cfg,
+            log_path,
+            heartbeat=lambda elapsed: db.update_running_progress(run.run_id, round(elapsed, 3)),
+        )
+        row["finished_at"] = now_iso()
+        row["elapsed_sec"] = round(time.time() - t0, 3)
+        row["exit_code"] = proc.returncode
 
-    base_cfg = load_json(runtime.base_config_path)
-    step_size = forward_step_size(runtime.base_config_path, base_cfg)
-    actions_path = Path(artifacts["actions_path"]) if artifacts["actions_path"] else None
-    row["path_length_m"] = path_length_m(actions_path, step_size)
-    row.update(parse_log_metrics(log_path))
-    launch_error = detect_launch_failure(log_path)
+        try:
+            stage_dir = find_stage_result_dir(runtime, run)
+            result_dir, migrate_error = migrate_stage_result(runtime, run, stage_dir)
+            artifacts, cleanup_error = collect_artifacts(runtime, run, result_dir)
+            row.update(artifacts)
+            cleanup_errors = [x for x in (migrate_error, cleanup_error) if x]
+            row["cleanup_error"] = "; ".join(cleanup_errors) if cleanup_errors else None
 
-    if launch_error is not None:
+            base_cfg = load_json(runtime.base_config_path)
+            step_size = forward_step_size(runtime.base_config_path, base_cfg)
+            actions_path = Path(artifacts["actions_path"]) if artifacts["actions_path"] else None
+            row["path_length_m"] = path_length_m(actions_path, step_size)
+            row.update(parse_log_metrics(log_path))
+        except Exception as e:
+            post_error = f"postprocess failed: {e}"
+            row["cleanup_error"] = "; ".join([x for x in (row.get("cleanup_error"), post_error) if x])
+    except Exception as e:
+        # Ensure the row never remains in 'running' on unexpected runner errors.
+        row["finished_at"] = now_iso()
+        row["elapsed_sec"] = round(time.time() - t0, 3)
         row["status"] = "failed"
-        row["error_message"] = launch_error
-    elif proc.returncode == 0:
-        row["status"] = "completed_with_cleanup_error" if cleanup_error else "completed"
-    else:
-        row["status"] = "failed"
-        row["error_message"] = f"roslaunch exited with code {proc.returncode}; see {log_path}"
+        row["error_message"] = f"runner exception: {e}"
+    finally:
+        if row.get("status") == "failed" and row.get("error_message"):
+            db.upsert(row)
+            print(f"[{row['status']}] {run.run_id}")
+            return
 
-    db.upsert(row)
-    print(f"[{row['status']}] {run.run_id}")
+        launch_error = detect_launch_failure(log_path)
+        if launch_error is not None:
+            row["status"] = "failed"
+            row["error_message"] = launch_error
+        elif proc is not None and proc.returncode == 0:
+            row["status"] = "completed_with_cleanup_error" if (row.get("cleanup_error") or cleanup_error or post_error) else "completed"
+        else:
+            row["status"] = "failed"
+            code = None if proc is None else proc.returncode
+            row["error_message"] = f"roslaunch exited with code {code}; see {log_path}"
+
+        if row.get("finished_at") is None:
+            row["finished_at"] = now_iso()
+        if row.get("elapsed_sec") is None:
+            row["elapsed_sec"] = round(time.time() - t0, 3)
+
+        db.upsert(row)
+        print(f"[{row['status']}] {run.run_id}")
 
 
 def parse_args() -> argparse.Namespace:
